@@ -36,8 +36,8 @@ class CameraManager:
         # Tối ưu cho RTSP
         if isinstance(self.camera_index, str) and (self.camera_index.startswith('rtsp') or self.camera_index.startswith('http')):
             import os
-            # Sử dụng TCP để ổn định hơn (tránh mất gói tin như UDP)
-            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+            # Sử dụng UDP để giảm độ trễ (nhanh hơn TCP cho video realtime)
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;udp"
             self.cap = cv2.VideoCapture(self.camera_index, cv2.CAP_FFMPEG)
             # Giảm buffer size xuống 1 để luôn lấy frame mới nhất
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
