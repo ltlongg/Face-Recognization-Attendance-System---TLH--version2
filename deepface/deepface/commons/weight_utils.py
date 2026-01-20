@@ -38,6 +38,12 @@ def download_weights_if_necessary(
     Returns
         target_file (str): exact path for the target file
     """
+    # Ưu tiên kiểm tra trong thư mục 'weight' tại gốc dự án trước
+    project_local_weight = os.path.join(os.getcwd(), "weight", file_name)
+    if os.path.isfile(project_local_weight):
+        logger.info(f"✅ Loading {file_name} from project local weight folder: {project_local_weight}")
+        return project_local_weight
+
     home = folder_utils.get_deepface_home()
 
     target_file = os.path.normpath(os.path.join(home, ".deepface/weights", file_name))
