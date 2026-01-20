@@ -55,7 +55,17 @@ class AttendanceSystem:
 
 def main():
     """Entry point của chương trình."""
+    print("======================================================")
+    print("   HỆ THỐNG ĐIỂM DANH KHUÔN MẶT ĐANG KHỞI ĐỘNG...   ")
+    print("======================================================")
+    
     system = AttendanceSystem()
+    
+    print("\n[HỆ THỐNG] Đã sẵn sàng!")
+    print(f"[CHẾ ĐỘ] Headless (Không cửa sổ) - Theo dõi qua Terminal")
+    print("[THÔNG TIN] Đang sử dụng mô hình YuNet + SFace")
+    print("-" * 54)
+    
     system.run()
 
 
