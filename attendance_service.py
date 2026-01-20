@@ -8,6 +8,7 @@ Module này chứa logic nghiệp vụ chính:
 
 import cv2
 import time
+from datetime import datetime
 
 import config
 from camera import CameraManager, FrameRenderer
@@ -122,8 +123,6 @@ class AttendanceService:
                 
                 # Xử lý kết quả (Guard clauses để giảm nesting)
                 if result is None:
-                    cv2.imshow("He thong nhan dien - Nhan 'q' de thoat", frame)
-                    if cv2.waitKey(1) & 0xFF == ord('q'): break
                     continue
 
                 landmarks = result.get("landmarks")
@@ -131,23 +130,19 @@ class AttendanceService:
                 
                 # 1. Kiểm tra spoofing
                 if result.get("is_spoof", False):
-                    self.renderer.draw_spoof_warning(frame, bbox, landmarks)
-                    cv2.imshow("He thong nhan dien - Nhan 'q' de thoat", frame)
-                    if cv2.waitKey(1) & 0xFF == ord('q'): break
+                    print(f"[CẢNH BÁO] Phát hiện khuôn mặt GIẢ tại {datetime.now().strftime(config.DATETIME_FORMAT)}")
                     continue
 
                 # 2. Trường hợp không nhận dạng được
                 if not result.get("recognized"):
-                    self.renderer.draw_unknown_face(frame, bbox, landmarks)
                     # Reset counter cho mọi người vì không thấy ai quen trong frame này
                     for eid in recognition_counter: recognition_counter[eid] = 0
-                    cv2.imshow("He thong nhan dien - Nhan 'q' de thoat", frame)
-                    if cv2.waitKey(1) & 0xFF == ord('q'): break
                     continue
 
                 # 3. Trường hợp nhận dạng thành công
                 emp_id = result["emp_id"]
                 name = result["name"]
+                dept = result["department"]
                 
                 # Reset counter cho những người KHÁC
                 for eid in list(recognition_counter.keys()):
@@ -157,22 +152,28 @@ class AttendanceService:
                 now = time.time()
                 last_time = last_attendance_time.get(emp_id, 0)
                 
-                if now - last_time < config.ATTENDANCE_COOLDOWN:
-                    self.renderer.draw_already_attended(frame, bbox, name)
-                else:
+                if now - last_time >= config.ATTENDANCE_COOLDOWN:
                     # Tích lũy counter
                     recognition_counter[emp_id] = recognition_counter.get(emp_id, 0) + 1
                     
                     if recognition_counter[emp_id] >= config.CONFIRM_FRAMES:
-                        self.attendance_db.record(emp_id, name, result["department"])
+                        # Ghi nhận vào DB
+                        self.attendance_db.record(emp_id, name, dept)
                         last_attendance_time[emp_id] = now
                         recognition_counter[emp_id] = 0
-                        #print(f"[INFO] Ghi nhận điểm danh: {name} ({emp_id})")
-                    
-                    self.renderer.draw_recognized_face(frame, bbox, name, landmarks)
+                        
+                        # LOG CHI TIẾT RA TERMINAL
+                        current_time = datetime.now().strftime(config.DATETIME_FORMAT)
+                        print(f"---")
+                        print(f"[ SUCCESS ] ĐIỂM DANH THÀNH CÔNG")
+                        print(f" > Nhân viên: {name}")
+                        print(f" > ID: {emp_id}")
+                        print(f" > Phòng ban: {dept}")
+                        print(f" > Thời gian: {current_time}")
+                        print(f"---")
 
-                cv2.imshow("He thong nhan dien - Nhan 'q' de thoat", frame)
-                if cv2.waitKey(1) & 0xFF == ord('q'): break
+                # Chế độ headless: nghỉ một chút để giảm tải CPU
+                time.sleep(0.01)
 
 
 class VideoRegistrationService:

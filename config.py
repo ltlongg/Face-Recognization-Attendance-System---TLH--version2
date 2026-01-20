@@ -30,7 +30,7 @@ EMPLOYEES_DB_FILE = os.path.join(DATA_FOLDER, "employees.json")
 SIMILARITY_THRESHOLD = 0.5
 
 # CẤU HÌNH CHỐNG GIẢ MẠO (ANTI-SPOOFING)
-ANTISPOOF_ENABLED = True
+ANTISPOOF_ENABLED = False
 ANTISPOOF_THRESHOLD = 0.7
 
 # Số frame liên tiếp cần nhận dạng thành công để xác nhận điểm danh
@@ -68,6 +68,9 @@ CAMERA_INDEX = 'rtsp://admin:Tlh@2026@187.26.222.251/ISAPI/Streaming/channels/10
 # =============================================================================
 # CẤU HÌNH HIỂN THỊ
 # =============================================================================
+
+# Chế độ hiển thị (Đặt False khi chạy SSH trên Mini PC)
+SHOW_WINDOW = False
 
 # Màu sắc (BGR format)
 COLOR_SUCCESS = (0, 255, 0)      # Màu xanh lá - nhận dạng thành công
