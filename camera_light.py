@@ -68,6 +68,7 @@ def _flash_worker():
             _set_ircut_filter("day")
     except Exception as e:
         print(f"[LIGHT] Lỗi khi nháy đèn: {e}")
+        pass
 
 
 def flash_light():

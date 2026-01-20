@@ -51,6 +51,11 @@ except ImportError:
     )
     from utils import AttendanceReader
 
+# Tắt log truy cập của Flask/Werkzeug để terminal sạch hơn
+import logging
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
+
 app = Flask(__name__)
 app.secret_key = 'super-secret-key-123'
 
@@ -437,7 +442,6 @@ def save_captured_frames(det, rec):
         state['mode'] = 'done'
         state['message'] = f'Lỗi: {message}'
     
-    print(f"[INFO] {message}")
     time.sleep(1.5)
     state['active'] = False
 

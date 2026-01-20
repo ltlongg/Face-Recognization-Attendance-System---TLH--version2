@@ -167,7 +167,7 @@ class AttendanceService:
                         self.attendance_db.record(emp_id, name, result["department"])
                         last_attendance_time[emp_id] = now
                         recognition_counter[emp_id] = 0
-                        print(f"[INFO] Ghi nhận điểm danh: {name} ({emp_id})")
+                        #print(f"[INFO] Ghi nhận điểm danh: {name} ({emp_id})")
                     
                     self.renderer.draw_recognized_face(frame, bbox, name, landmarks)
 
