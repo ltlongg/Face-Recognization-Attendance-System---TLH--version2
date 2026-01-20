@@ -61,7 +61,7 @@ BLUR_THRESHOLD = 100.0
 # =============================================================================
 
 # Index camera (0 = camera mặc định)
-CAMERA_INDEX = 'rtsp://admin:Tlh@2026@187.26.222.251/ISAPI/Streaming/channels/101'
+CAMERA_INDEX = 'rtsp://admin:Tlh@2026@187.26.222.251/ISAPI/Streaming/channels/102'
 # CAMERA_INDEX = 0
 
 
