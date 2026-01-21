@@ -2,26 +2,26 @@
     "001": {
         "name": "Le Thanh Long",
         "department": "IT",
-        "num_photos": 14
+        "num_photos": 20
+    },
+    "002": {
+        "name": "Trinh Manh",
+        "department": "Vien Thong",
+        "num_photos": 20
     },
     "003": {
         "name": "Lam Manh",
         "department": "Vien Thong",
-        "num_photos": 13
-    },
-    "002": {
-        "name": "Linh",
-        "department": "Ke Toan",
-        "num_photos": 13
+        "num_photos": 20
     },
     "004": {
         "name": "Anh Thuong",
         "department": "Vien Thong",
-        "num_photos": 12
+        "num_photos": 20
     },
     "005": {
-        "name": "Trinh Manh",
-        "department": "Vien Thong",
+        "name": "Khanh Linh",
+        "department": "Ke Toan",
         "num_photos": 20
     }
 }
