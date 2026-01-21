@@ -37,7 +37,7 @@ ANTISPOOF_THRESHOLD = 0.7
 CONFIRM_FRAMES = 10
 
 # Tối ưu hóa hiệu năng
-FRAME_SKIP = 1
+FRAME_SKIP = 5
 PROCESS_WIDTH = 640
 
 # Số ảnh tối đa lưu trữ cho mỗi nhân viên
@@ -55,10 +55,6 @@ CAMERA_INDEX = 'rtsp://admin:Tlh@2026@187.26.222.251/ISAPI/Streaming/channels/10
 # =============================================================================
 # CẤU HÌNH HIỂN THỊ
 # =============================================================================
-
-# Chế độ hiển thị (Đặt False khi chạy SSH trên Mini PC)
-SHOW_WINDOW = False
-
 # Màu sắc (BGR format)
 COLOR_SUCCESS = (0, 255, 0)      # Màu xanh lá - nhận dạng thành công
 COLOR_WARNING = (0, 165, 255)    # Màu cam - đã điểm danh

@@ -92,88 +92,108 @@ class AttendanceService:
         
         return {"recognized": False, "bbox": face.bbox, "landmarks": face.landmarks, "similarity": similarity}
     
+
     def run_recognition_camera(self):
-        """Chạy nhận diện khuôn mặt realtime qua camera."""
+        """Chạy nhận diện khuôn mặt realtime qua camera (Đã tối ưu Production)."""
         recognition_counter = {}
-        last_attendance_time = {}  # Lưu thời gian điểm danh cuối của mỗi người
+        last_attendance_time = {}
         frame_count = 0
-        last_result = None
         
-        with CameraManager() as camera:
-            if not camera.is_opened:
-                return
-            
-            while True:
-                ret, frame = camera.read_frame()
-                if not ret or frame is None:
-                    break
-                
-                # Resize frame
-                if config.PROCESS_WIDTH and frame.shape[1] > config.PROCESS_WIDTH:
-                    scale = config.PROCESS_WIDTH / frame.shape[1]
-                    frame = cv2.resize(frame, (config.PROCESS_WIDTH, int(frame.shape[0] * scale)))
+        # Biến đếm lỗi để log
+        error_count = 0
+        
+        print(f"[INFO] Bắt đầu luồng Camera AI...")
 
-                # Tối ưu hóa: Chỉ nhận dạng mỗi N frame
-                if frame_count % config.FRAME_SKIP == 0:
-                    # Nhận dạng khuôn mặt lớn nhất
-                    last_result = self.recognize_face(frame)
-                
-                result = last_result
-                frame_count += 1
-                
-                # Xử lý kết quả (Guard clauses để giảm nesting)
-                if result is None:
-                    continue
-
-                landmarks = result.get("landmarks")
-                bbox = result.get("bbox")
-                
-                # 1. Kiểm tra spoofing
-                if result.get("is_spoof", False):
-                    print(f"[CẢNH BÁO] Phát hiện khuôn mặt GIẢ tại {datetime.now().strftime(config.DATETIME_FORMAT)}")
-                    continue
-
-                # 2. Trường hợp không nhận dạng được
-                if not result.get("recognized"):
-                    # Reset counter cho mọi người vì không thấy ai quen trong frame này
-                    for eid in recognition_counter: recognition_counter[eid] = 0
-                    continue
-
-                # 3. Trường hợp nhận dạng thành công
-                emp_id = result["emp_id"]
-                name = result["name"]
-                dept = result["department"]
-                
-                # Reset counter cho những người KHÁC
-                for eid in list(recognition_counter.keys()):
-                    if eid != emp_id: recognition_counter[eid] = 0
-
-                # Kiểm tra cooldown
-                now = time.time()
-                last_time = last_attendance_time.get(emp_id, 0)
-                
-                if now - last_time >= config.ATTENDANCE_COOLDOWN:
-                    # Tích lũy counter
-                    recognition_counter[emp_id] = recognition_counter.get(emp_id, 0) + 1
+        while True: # Vòng lặp vĩnh cửu bên ngoài để tái khởi động camera manager
+            try:
+                with CameraManager() as camera:
+                    if not camera.is_opened:
+                        print("[ERROR] Không thể mở camera. Thử lại sau 5s...")
+                        time.sleep(5)
+                        continue
                     
-                    if recognition_counter[emp_id] >= config.CONFIRM_FRAMES:
-                        # Ghi nhận vào DB
-                        self.attendance_db.record(emp_id, name, dept)
-                        last_attendance_time[emp_id] = now
-                        recognition_counter[emp_id] = 0
-                        
-                        # LOG CHI TIẾT RA TERMINAL
-                        current_time = datetime.now().strftime(config.DATETIME_FORMAT)
-                        print(f"---")
-                        print(f"[ SUCCESS ] ĐIỂM DANH THÀNH CÔNG")
-                        print(f" > Nhân viên: {name}")
-                        print(f" > ID: {emp_id}")
-                        print(f" > Phòng ban: {dept}")
-                        print(f" > Thời gian: {current_time}")
-                        print(f"---")
+                    print("[INFO] Đã kết nối Camera thành công.")
+                    error_count = 0 # Reset lỗi khi kết nối lại được
 
-                # Chế độ headless: nghỉ một chút để giảm tải CPU
-                time.sleep(0.01)
+                    while True:
+                        ret, frame = camera.read_frame()
+                        
+                        # 1. XỬ LÝ MẤT KẾT NỐI (Resilient)
+                        if not ret or frame is None:
+                            error_count += 1
+                            print(f"[WARN] Mất tín hiệu Camera ({error_count})...")
+                            if error_count > 10: # Nếu mất liên tục 10 lần
+                                print("[WARN] Camera có vẻ bị treo. Đang khởi động lại kết nối...")
+                                break # Thoát vòng lặp trong để ra ngoài init lại CameraManager
+                            time.sleep(0.5)
+                            continue
+                        
+                        error_count = 0 # Reset lỗi nếu đọc được frame
+
+                        # 2. FRAME SKIPPING
+                        frame_count += 1
+                        if frame_count % config.FRAME_SKIP != 0:
+                            continue # Bỏ qua ngay lập tức, không resize, không tính toán
+                        
+                        # 3. CHỈ RESIZE KHI CẦN (Lazy Resize)
+                        if config.PROCESS_WIDTH and frame.shape[1] > config.PROCESS_WIDTH:
+                            scale = config.PROCESS_WIDTH / frame.shape[1]
+                            frame = cv2.resize(frame, (config.PROCESS_WIDTH, int(frame.shape[0] * scale)))
+
+                        # 4. NHẬN DIỆN
+                        result = self.recognize_face(frame)
+                        
+                        # --- XỬ LÝ LOGIC CHẤM CÔNG ---
+                        if result is None:
+                            # Không thấy ai -> Reset counter
+                            recognition_counter.clear()
+                            # Để tránh việc người đi qua nhanh rồi 10s sau quay lại vẫn bị tính tiếp
+                            continue
+
+                        # Kiểm tra Spoofing
+                        if result.get("is_spoof", False):
+                            print(f"[ALERT] FACE SPOOF DETECTED at {datetime.now()}")
+                            continue
+
+                        # Nếu không nhận diện được ai (Unknown)
+                        if not result.get("recognized"):
+                            # Reset counter tất cả
+                            for eid in recognition_counter: recognition_counter[eid] = 0
+                            continue
+
+                        # Nhận diện thành công
+                        emp_id = result["emp_id"]
+                        name = result["name"]
+                        dept = result["department"]
+
+                        # Logic độc quyền: Chỉ reset người khác, giữ người này
+                        for eid in list(recognition_counter.keys()):
+                            if eid != emp_id: recognition_counter[eid] = 0
+
+                        # Kiểm tra Cooldown
+                        now = time.time()
+                        last_time = last_attendance_time.get(emp_id, 0)
+
+                        if now - last_time >= config.ATTENDANCE_COOLDOWN:
+                            # Tăng bộ đếm
+                            recognition_counter[emp_id] = recognition_counter.get(emp_id, 0) + 1
+
+                            if recognition_counter[emp_id] >= config.CONFIRM_FRAMES:
+                                # --- CHỐT ĐƠN ---
+                                self.attendance_db.record(emp_id, name, dept)
+                                last_attendance_time[emp_id] = now
+                                recognition_counter[emp_id] = 0 # Reset sau khi điểm danh xong
+                                
+                                # Log đẹp
+                                print(f"\n>>> [SUCCESS] ĐIỂM DANH: {name} ({dept}) - {datetime.now().strftime('%H:%M:%S')}")
+
+                        # Nghỉ cực ngắn để CPU thở
+                        time.sleep(0.01)
+
+            except Exception as e:
+                print(f"[CRITICAL ERROR] Lỗi không xác định trong luồng Camera: {e}")
+                print("Hệ thống sẽ tự khởi động lại sau 5s...")
+                time.sleep(5)
 
 
 class VideoRegistrationService:
