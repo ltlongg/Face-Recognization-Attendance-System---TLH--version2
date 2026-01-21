@@ -450,6 +450,31 @@ EMPLOYEE_FORM_TEMPLATE = '''
             font-size: 0.9em;
             color: #004085;
         }
+        .progress-container {
+            display: none;
+            margin-top: 20px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            height: 25px;
+            position: relative;
+        }
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            width: 0%;
+            transition: width 0.3s;
+        }
+        .progress-text {
+            position: absolute;
+            width: 100%;
+            text-align: center;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.85em;
+            font-weight: bold;
+            color: #333;
+        }
     </style>
 </head>
 <body>
@@ -466,11 +491,11 @@ EMPLOYEE_FORM_TEMPLATE = '''
         
         {% if action == 'add' %}
         <div class="info-box">
-            💡 <strong>Bước tiếp theo:</strong> Sau khi nhấn thêm, bạn sẽ được chuyển đến trang <strong>đăng ký khuôn mặt</strong> để thu thập 20 ảnh khuôn mặt từ các góc khác nhau.
+            💡 <strong>Hướng dẫn:</strong> Tải lên video quay khuôn mặt của nhân viên. Hệ thống sẽ tự động trích xuất 20 ảnh tốt nhất để đăng ký.
         </div>
         {% endif %}
         
-        <form method="POST">
+        <form id="employee-form" method="POST" enctype="multipart/form-data">
             <div class="form-group">
                 <label for="emp_id">Mã nhân viên *</label>
                 {% if action == 'add' %}
@@ -493,409 +518,87 @@ EMPLOYEE_FORM_TEMPLATE = '''
                        placeholder="VD: Phòng IT"
                        value="{{ employee.department if employee else '' }}">
             </div>
+
+            {% if action == 'add' %}
+            <div class="form-group">
+                <label for="video">Video khuôn mặt (Upload file) *</label>
+                <input type="file" id="video" name="video" accept="video/*" required>
+                <p style="font-size: 0.8em; color: #666; margin-top: 5px;">Hệ thống sẽ tự động trích xuất các khuôn mặt từ video này.</p>
+            </div>
+            {% endif %}
             
-            <button type="submit" class="btn-submit">
-                {% if action == 'add' %}➕ Thêm & Đăng ký khuôn mặt{% else %}💾 Lưu thay đổi{% endif %}
+            <div id="progress-container" class="progress-container">
+                <div id="progress-bar" class="progress-bar"></div>
+                <div id="progress-text" class="progress-text">Đang chuẩn bị... 0%</div>
+            </div>
+
+            <button type="submit" id="btn-submit" class="btn-submit" style="margin-top: 20px;">
+                {% if action == 'add' %}➕ Thêm & Xử lý Video{% else %}💾 Lưu thay đổi{% endif %}
             </button>
-            <a href="/employees" class="btn-cancel">← Quay lại danh sách</a>
+            <a href="/employees" id="btn-cancel" class="btn-cancel">← Quay lại danh sách</a>
         </form>
     </div>
-</body>
-</html>
-'''
 
-VIDEO_REGISTER_TEMPLATE = '''
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>📹 Đăng Ký Khuôn Mặt - {{ employee.name }}</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 20px;
-            min-height: 100vh;
-        }
-        .container { 
-            max-width: 900px; 
-            margin: 0 auto;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
-            overflow: hidden;
-        }
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 25px;
-            text-align: center;
-        }
-        .header h1 { font-size: 1.8em; margin-bottom: 8px; }
-        .header p { opacity: 0.9; }
-        
-        .content { padding: 30px; }
-        
-        .employee-info {
-            background: #f8f9fa;
-            padding: 15px 20px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .employee-info strong { color: #667eea; }
-        
-        .video-container {
-            background: #000;
-            border-radius: 10px;
-            overflow: hidden;
-            margin-bottom: 20px;
-            position: relative;
-        }
-        .video-container img {
-            width: 100%;
-            display: block;
-        }
-        
-        .status-indicator {
-            position: absolute;
-            top: 15px;
-            left: 15px;
-            padding: 8px 15px;
-            border-radius: 20px;
-            font-weight: bold;
-            font-size: 0.9em;
-            display: none;
-        }
-        .status-indicator.capturing {
-            background: #28a745;
-            color: white;
-            display: block;
-            animation: pulse 1.5s infinite;
-        }
-        .status-indicator.no-face {
-            background: #dc3545;
-            color: white;
-            display: block;
-        }
-        .status-indicator.blurry {
-            background: #ffc107;
-            color: #333;
-            display: block;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
-        }
-        
-        .status-message {
-            text-align: center;
-            font-size: 1.1em;
-            color: #333;
-            margin-bottom: 15px;
-            padding: 12px;
-            background: #f8f9fa;
-            border-radius: 8px;
-            min-height: 50px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .status-message.success { background: #d4edda; color: #155724; }
-        .status-message.warning { background: #fff3cd; color: #856404; }
-        .status-message.error { background: #f8d7da; color: #721c24; }
-        
-        .progress-section {
-            margin-bottom: 20px;
-        }
-        .progress-label {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: #333;
-        }
-        .progress-container {
-            width: 100%;
-            height: 25px;
-            background: #e0e0e0;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .progress-bar-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #28a745, #20c997);
-            width: 0%;
-            transition: width 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: bold;
-            font-size: 0.85em;
-        }
-        .progress-bar-fill.processing {
-            background: linear-gradient(90deg, #667eea, #764ba2);
-            animation: shimmer 2s infinite linear;
-            background-size: 200% 100%;
-        }
-        @keyframes shimmer {
-            0% { background-position: 200% 0; }
-            100% { background-position: 0 0; }
-        }
-        
-        .controls {
-            display: flex;
-            gap: 15px;
-            justify-content: center;
-            margin-bottom: 20px;
-        }
-        .btn {
-            padding: 15px 30px;
-            border: none;
-            border-radius: 10px;
-            font-size: 1.1em;
-            font-weight: bold;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        .btn:hover { 
-            transform: translateY(-2px); 
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-        }
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-        }
-        .btn-start { background: #28a745; color: white; }
-        .btn-stop { background: #dc3545; color: white; }
-        .btn-back { background: #6c757d; color: white; text-decoration: none; }
-        
-        .instructions {
-            background: #e7f3ff;
-            padding: 15px 20px;
-            border-radius: 10px;
-            border-left: 4px solid #0066cc;
-        }
-        .instructions h3 { color: #004085; margin-bottom: 10px; }
-        .instructions ul { margin-left: 20px; color: #004085; }
-        .instructions li { margin-bottom: 5px; }
-        
-        .legend {
-            display: flex;
-            gap: 20px;
-            justify-content: center;
-            margin-top: 15px;
-            flex-wrap: wrap;
-        }
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 0.9em;
-        }
-        .legend-color {
-            width: 20px;
-            height: 20px;
-            border-radius: 4px;
-        }
-        .legend-color.green { background: #28a745; }
-        .legend-color.orange { background: #ffc107; }
-        .legend-color.red { background: #dc3545; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>📹 ĐĂNG KÝ KHUÔN MẶT</h1>
-            <p>Lấy 20 ảnh khuôn mặt từ các góc khác nhau</p>
-        </div>
-        
-        <div class="content">
-            <div class="employee-info">
-                <div>
-                    <strong>{{ employee.name }}</strong> ({{ emp_id }})
-                    <br><small>{{ employee.department }}</small>
-                </div>
-                <div>
-                    {% if employee.num_photos > 0 %}
-                    <span style="color: #28a745;">✓ Đã có {{ employee.num_photos }} ảnh</span>
-                    {% else %}
-                    <span style="color: #ffc107;">⚠ Chưa đăng ký</span>
-                    {% endif %}
-                </div>
-            </div>
-            
-            <div class="video-container">
-                <img id="video-feed" src="/api/video-feed" alt="Video Feed">
-                <div id="status-indicator" class="status-indicator"></div>
-            </div>
-            
-            <div class="legend">
-                <div class="legend-item">
-                    <div class="legend-color green"></div>
-                    <span>Khuôn mặt rõ nét</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-color orange"></div>
-                    <span>Ảnh bị mờ</span>
-                </div>
-            </div>
-            
-            <div id="status-message" class="status-message" style="margin-top: 15px;">
-                Nhấn "Bắt đầu" để đăng ký khuôn mặt. Hãy đảm bảo ánh sáng tốt và đưa mặt vào camera.
-            </div>
-            
-            <div class="progress-section" id="progress-section" style="display: none;">
-                <div class="progress-label">
-                    <span>Tiến độ thu thập ảnh</span>
-                    <span id="progress-text">0 / 20 ảnh</span>
-                </div>
-                <div class="progress-container">
-                    <div id="progress-bar-fill" class="progress-bar-fill"></div>
-                </div>
-            </div>
-            
-            <div class="controls">
-                <button id="btn-start" class="btn btn-start" onclick="startCapture()">
-                    ▶️ Bắt đầu
-                </button>
-                <button id="btn-stop" class="btn btn-stop" onclick="stopCapture()" style="display: none;">
-                    ⏹️ Dừng lại
-                </button>
-                <a href="/employees" class="btn btn-back">← Quay lại</a>
-            </div>
-            
-            <div class="instructions">
-                <h3>📋 Hướng dẫn:</h3>
-                <ul>
-                    <li>Đảm bảo <strong>ánh sáng đủ</strong> và khuôn mặt <strong>rõ nét</strong></li>
-                    <li>Nhìn thẳng vào camera, sau đó <strong>quay trái/phải</strong> nhẹ để lấy nhiều góc</li>
-                    <li>Hệ thống sẽ tự động lấy ảnh khi phát hiện khuôn mặt rõ nét</li>
-                    <li>Mỗi ảnh cách nhau <strong>0.5 giây</strong>, tổng cộng lấy <strong>20 ảnh</strong></li>
-                    <li>Khung <span style="color:#28a745;font-weight:bold;">xanh</span> = OK, khung <span style="color:#ffc107;font-weight:bold;">cam</span> = ảnh mờ</li>
-                </ul>
-            </div>
-        </div>
-    </div>
-    
     <script>
-        const empId = "{{ emp_id }}";
-        let capturing = false;
-        let progressInterval = null;
-        
-        function updateProgress() {
-            fetch('/api/recording-progress')
-                .then(r => r.json())
-                .then(data => {
-                    const statusMsg = document.getElementById('status-message');
-                    const statusIndicator = document.getElementById('status-indicator');
-                    const progressText = document.getElementById('progress-text');
-                    const progressFill = document.getElementById('progress-bar-fill');
+        const form = document.getElementById('employee-form');
+        const btnSubmit = document.getElementById('btn-submit');
+        const btnCancel = document.getElementById('btn-cancel');
+        const progressContainer = document.getElementById('progress-container');
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+
+        {% if action == 'add' %}
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            
+            const formData = new FormData(form);
+            btnSubmit.disabled = true;
+            btnSubmit.style.opacity = '0.7';
+            btnSubmit.innerText = '⌛ Đang xử lý...';
+            btnCancel.style.display = 'none';
+            progressContainer.style.display = 'block';
+
+            // Gửi request upload
+            const response = await fetch('/employees/add', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                // Bắt đầu theo dõi tiến độ
+                const interval = setInterval(async () => {
+                    const res = await fetch('/api/process-progress');
+                    const data = await res.json();
                     
-                    if (data.recording) {
-                        const count = data.count;
-                        const total = data.total;
-                        const mode = data.mode;
-                        const percent = Math.min((count / total) * 100, 100);
-                        
-                        progressText.textContent = `${count} / ${total} ảnh`;
-                        progressFill.style.width = percent + '%';
-                        
-                        if (mode === 'capturing') {
-                            statusMsg.textContent = data.message || 'Đang thu thập ảnh...';
-                            statusMsg.className = 'status-message';
-                            progressFill.classList.remove('processing');
-                            
-                            // Cập nhật indicator
-                            if (!data.face_detected) {
-                                statusIndicator.textContent = '❌ Không thấy mặt';
-                                statusIndicator.className = 'status-indicator no-face';
-                                statusMsg.className = 'status-message warning';
-                            } else if (data.is_blurry) {
-                                statusIndicator.textContent = '⚠️ Ảnh mờ';
-                                statusIndicator.className = 'status-indicator blurry';
-                                statusMsg.className = 'status-message warning';
-                            } else {
-                                statusIndicator.textContent = '✓ Đang lấy ảnh';
-                                statusIndicator.className = 'status-indicator capturing';
-                            }
-                            
-                        } else if (mode === 'saving') {
-                            statusMsg.textContent = '⏳ Đang xử lý và lưu dữ liệu...';
-                            statusMsg.className = 'status-message';
-                            progressFill.classList.add('processing');
-                            statusIndicator.style.display = 'none';
-                            document.getElementById('btn-stop').style.display = 'none';
-                            
-                        } else if (mode === 'done') {
-                            statusMsg.textContent = data.message || '✓ Hoàn thành!';
-                            statusMsg.className = 'status-message success';
-                            progressFill.style.width = '100%';
-                            progressFill.classList.remove('processing');
-                            statusIndicator.style.display = 'none';
-                        }
-                        
-                    } else if (capturing) {
-                        // Quá trình kết thúc
-                        capturing = false;
-                        clearInterval(progressInterval);
-                        
-                        // Hiển thị thông báo hoàn thành và chuyển trang
-                        statusMsg.textContent = '✓ Hoàn thành! Đang chuyển trang...';
-                        statusMsg.className = 'status-message success';
-                        
+                    if (data.active) {
+                        const percent = data.percent || 0;
+                        progressBar.style.width = percent + '%';
+                        progressText.innerText = `Đang trích xuất: ${data.current}/${data.total} frame (${percent}%)`;
+                    } else if (data.done) {
+                        clearInterval(interval);
+                        progressBar.style.width = '100%';
+                        progressText.innerText = '✅ Hoàn thành! Đang chuyển trang...';
                         setTimeout(() => {
                             window.location.href = '/employees';
-                        }, 1000);
+                        }, 1500);
+                    } else if (data.error) {
+                        clearInterval(interval);
+                        alert('Lỗi: ' + data.error);
+                        location.reload();
                     }
-                })
-                .catch(err => {
-                    console.error('Error fetching progress:', err);
-                });
-        }
-        
-        function startCapture() {
-            fetch('/api/start-recording', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({emp_id: empId})
-            }).then(r => r.json()).then(data => {
-                if (data.status === 'success') {
-                    capturing = true;
-                    document.getElementById('btn-start').style.display = 'none';
-                    document.getElementById('btn-stop').style.display = 'inline-block';
-                    document.getElementById('progress-section').style.display = 'block';
-                    document.getElementById('status-message').textContent = 'Đang chuẩn bị...';
-                    progressInterval = setInterval(updateProgress, 200);
-                } else {
-                    document.getElementById('status-message').textContent = '❌ ' + data.message;
-                    document.getElementById('status-message').className = 'status-message error';
-                }
-            });
-        }
-        
-        function stopCapture() {
-            if (!capturing) return;
-            
-            document.getElementById('status-message').textContent = '⏳ Đang dừng và xử lý...';
-            document.getElementById('btn-stop').style.display = 'none';
-            
-            fetch('/api/stop-recording', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({emp_id: empId})
-            }).then(r => r.json()).then(data => {
-                // Tiếp tục theo dõi progress cho đến khi hoàn tất
-            });
-        }
+                }, 500);
+            } else {
+                alert('Lỗi: ' + result.message);
+                btnSubmit.disabled = false;
+                btnSubmit.style.opacity = '1';
+                btnSubmit.innerText = '➕ Thêm & Xử lý Video';
+                btnCancel.style.display = 'block';
+                progressContainer.style.display = 'none';
+            }
+        };
+        {% endif %}
     </script>
 </body>
 </html>

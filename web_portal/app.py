@@ -16,8 +16,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database import EmployeeDatabase
 from config import (
     USERNAME, PASSWORD, USER_USERNAME, USER_PASSWORD,
-    ATTENDANCE_FOLDER, PHOTOS_FOLDER, EMPLOYEES_DB_FILE,
-    TOTAL_FRAMES_TO_CAPTURE, FRAME_CAPTURE_INTERVAL, BLUR_THRESHOLD
+    ATTENDANCE_FOLDER, PHOTOS_FOLDER, EMPLOYEES_DB_FILE, DATA_FOLDER
 )
 from models import FaceDetector, FaceRecognizer
 from attendance_service import VideoRegistrationService
@@ -39,14 +38,14 @@ def get_models():
 try:
     from web_portal.templates import (
         LOGIN_TEMPLATE, EMPLOYEES_TEMPLATE, EMPLOYEE_FORM_TEMPLATE,
-        VIDEO_REGISTER_TEMPLATE, MONTHLY_TEMPLATE, DAILY_TEMPLATE,
+        MONTHLY_TEMPLATE, DAILY_TEMPLATE,
         EMPLOYEE_DETAIL_TEMPLATE, MONTHLY_DETAIL_TEMPLATE
     )
     from web_portal.utils import AttendanceReader
 except ImportError:
     from templates import (
         LOGIN_TEMPLATE, EMPLOYEES_TEMPLATE, EMPLOYEE_FORM_TEMPLATE,
-        VIDEO_REGISTER_TEMPLATE, MONTHLY_TEMPLATE, DAILY_TEMPLATE,
+        MONTHLY_TEMPLATE, DAILY_TEMPLATE,
         EMPLOYEE_DETAIL_TEMPLATE, MONTHLY_DETAIL_TEMPLATE
     )
     from utils import AttendanceReader
@@ -59,18 +58,14 @@ log.setLevel(logging.ERROR)
 app = Flask(__name__)
 app.secret_key = 'super-secret-key-123'
 
-# Global state for video registration
-video_registration_state = {
+# Global state for background video processing (Upload mode)
+processing_status = {
     'active': False,
-    'emp_id': None,
-    'count': 0,
-    'total': TOTAL_FRAMES_TO_CAPTURE,
-    'mode': 'idle',  # idle, capturing, saving, done
-    'message': '',
-    'face_detected': False,
-    'is_blurry': False,
-    'captured_frames': [],
-    'last_capture_time': 0,
+    'done': False,
+    'error': None,
+    'current': 0,
+    'total': 0,
+    'percent': 0
 }
 
 def admin_required(f):
@@ -270,16 +265,96 @@ def add_employee():
         emp_id = request.form['emp_id']
         name = request.form['name']
         dept = request.form.get('department', '')
+        video_file = request.files.get('video')
         
         db = EmployeeDatabase()
         if db.exists(emp_id):
-            return render_template_string(EMPLOYEE_FORM_TEMPLATE, action='add', error="Mã nhân viên đã tồn tại!")
+            return jsonify({'status': 'error', 'message': 'Mã nhân viên đã tồn tại!'})
             
-        # Create folder and save info
-        db.add_employee_info_only(emp_id, name, dept)
-        return redirect(url_for('register_video', emp_id=emp_id))
+        if not video_file:
+            return jsonify({'status': 'error', 'message': 'Vui lòng tải lên video!'})
+            
+        # Lưu file video tạm thời
+        temp_video_path = os.path.join(DATA_FOLDER, f"temp_{emp_id}_{video_file.filename}")
+        video_file.save(temp_video_path)
+            
+        # Reset progress
+        global processing_status
+        processing_status = {
+            'active': True,
+            'done': False,
+            'error': None,
+            'current': 0,
+            'total': 0,
+            'percent': 0
+        }
+        
+        # Chạy xử lý trong thread riêng
+        det, rec = get_models()
+        threading.Thread(
+            target=process_uploaded_video, 
+            args=(temp_video_path, emp_id, name, dept, det, rec),
+            daemon=True
+        ).start()
+        
+        return jsonify({'status': 'success'})
         
     return render_template_string(EMPLOYEE_FORM_TEMPLATE, action='add', employee=None)
+
+def process_uploaded_video(video_path, emp_id, name, dept, det, rec):
+    """Hàm xử lý video upload chạy ngầm."""
+    global processing_status
+    try:
+        cap = cv2.VideoCapture(video_path)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        processing_status['total'] = total_frames
+        
+        captured_frames = []
+        frame_idx = 0
+        
+        # Thiết lập frame skip để lấy đều các góc mặt (lấy khoảng 60 frame tiềm năng)
+        # Nếu video ngắn, lấy nhiều hơn, nếu dài lấy ít hơn
+        skip = max(1, total_frames // 60)
+        
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+                
+            if frame_idx % skip == 0:
+                # Detect face
+                face = det.detect(frame)
+                if face:
+                    captured_frames.append(frame.copy())
+            
+            frame_idx += 1
+            processing_status['current'] = frame_idx
+            processing_status['percent'] = int((frame_idx / total_frames) * 100)
+            
+        cap.release()
+        
+        if len(captured_frames) < 3:
+            processing_status['error'] = "Không tìm thấy đủ khuôn mặt rõ trong video!"
+            processing_status['active'] = False
+            return
+            
+        # Đăng ký với database thông qua service
+        db = EmployeeDatabase()
+        service = VideoRegistrationService(det, rec, db)
+        success, message = service.register_from_video_frames(emp_id, name, dept, captured_frames)
+        
+        if success:
+            processing_status['done'] = True
+        else:
+            processing_status['error'] = message
+            
+    except Exception as e:
+        processing_status['error'] = str(e)
+    finally:
+        processing_status['active'] = False
+        if os.path.exists(video_path):
+            try: os.remove(video_path)
+            except: pass
 
 @app.route('/employees/edit/<emp_id>', methods=['GET', 'POST'])
 @admin_required
@@ -311,29 +386,11 @@ def delete_employee(emp_id):
     db.delete_employee(emp_id)
     return redirect(url_for('list_employees'))
 
-@app.route('/employees/register/<emp_id>')
-@admin_required
-def register_video(emp_id):
-    db = EmployeeDatabase()
-    if emp_id not in db.employees:
-        return redirect(url_for('list_employees'))
-    
-    employee = db.employees[emp_id]
-    # Check current photo count
-    emp_dir = os.path.join(PHOTOS_FOLDER, f"{emp_id}_{employee['name']}")
-    employee['num_photos'] = len(os.listdir(emp_dir)) if os.path.exists(emp_dir) else 0
-    
-    return render_template_string(VIDEO_REGISTER_TEMPLATE, emp_id=emp_id, employee=employee)
-
 @app.route('/api/video-feed')
 @admin_required
 def video_feed():
-    """Video feed duy nhất - vừa hiển thị, vừa capture frame khi cần.
-    Tất cả logic detect, blur check, capture đều chạy trong 1 luồng này.
-    """
+    """Video feed đơn giản - chỉ để quan sát camera."""
     def generate():
-        det, rec = get_models()
-        
         # Sử dụng CameraManager với Threading để giảm lag RTSP
         with CameraManager(CAMERA_INDEX) as camera:
             if not camera.is_opened:
@@ -345,68 +402,6 @@ def video_feed():
                     time.sleep(0.01)
                     continue
                 
-                # Tạo bản copy sạch ngay lập tức để dùng cho tính toán/lưu trữ
-                clean_frame = frame.copy()
-                
-                # Detect face (Sử dụng ảnh sạch)
-                face = det.detect(clean_frame)
-                video_registration_state['face_detected'] = face is not None
-                
-                is_sharp = False
-                laplacian_var = 0
-                
-                if face:
-                    x, y, w, h = face.bbox
-                    
-                    # Kiểm tra độ mờ (Sử dụng ảnh sạch)
-                    face_region = clean_frame[y:y+h, x:x+w]
-                    if face_region.size > 0:
-                        gray_face = cv2.cvtColor(face_region, cv2.COLOR_BGR2GRAY)
-                        laplacian_var = cv2.Laplacian(gray_face, cv2.CV_64F).var()
-                        is_blurry = bool(laplacian_var < BLUR_THRESHOLD)
-                        is_sharp = not is_blurry
-                        video_registration_state['is_blurry'] = is_blurry
-                        
-                        color = (0, 165, 255) if is_blurry else (0, 255, 0)
-                    else:
-                        color = (0, 255, 0)
-                        video_registration_state['is_blurry'] = False
-                    
-                    # VẼ LÊN FRAME (Chỉ dùng để hiển thị, không dùng để lưu)
-                    cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
-                    
-                    # Vẽ landmarks lên frame hiển thị
-                    if face.landmarks:
-                        for part, pos in face.landmarks.items():
-                            if isinstance(pos, (list, tuple)) and len(pos) == 2:
-                                cv2.circle(frame, (int(pos[0]), int(pos[1])), 3, (0, 255, 255), -1)
-                    
-                    # === CAPTURE LOGIC (Lưu clean_frame) ===
-                    if video_registration_state['mode'] == 'capturing':
-                        current_time = time.time()
-                        time_ok = (current_time - video_registration_state['last_capture_time']) >= FRAME_CAPTURE_INTERVAL
-                        
-                        if is_sharp and time_ok:
-                            # Lưu bản SẠCH vào danh sách đăng ký
-                            video_registration_state['captured_frames'].append(clean_frame)
-                            video_registration_state['last_capture_time'] = current_time
-                            video_registration_state['count'] = len(video_registration_state['captured_frames'])
-                            video_registration_state['message'] = f'Đã lấy {video_registration_state["count"]}/{TOTAL_FRAMES_TO_CAPTURE} ảnh. Quay trái/phải để lấy nhiều góc.'
-                            
-                            # Đủ số lượng → chuyển sang saving
-                            if video_registration_state['count'] >= TOTAL_FRAMES_TO_CAPTURE:
-                                video_registration_state['mode'] = 'saving'
-                                video_registration_state['message'] = 'Đang xử lý và lưu dữ liệu...'
-                                # Chạy save trong thread riêng để không block video feed
-                                threading.Thread(target=save_captured_frames, args=(det, rec), daemon=True).start()
-                        
-                        elif is_blurry:
-                            video_registration_state['message'] = f'Ảnh bị mờ (variance: {laplacian_var:.1f}). Giữ yên và đảm bảo ánh sáng tốt.'
-                else:
-                    video_registration_state['is_blurry'] = False
-                    if video_registration_state['mode'] == 'capturing':
-                        video_registration_state['message'] = 'Không phát hiện khuôn mặt. Hãy đưa mặt vào camera.'
-
                 ret, buffer = cv2.imencode('.jpg', frame)
                 frame_bytes = buffer.tobytes()
                 yield (b'--frame\r\n'
@@ -414,76 +409,11 @@ def video_feed():
         
     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-
-def save_captured_frames(det, rec):
-    """Lưu các frame đã capture vào database (chạy trong thread riêng để không block video)."""
-    state = video_registration_state
-    emp_id = state['emp_id']
-    frames = state['captured_frames'].copy()  # Copy để tránh race condition
-    
-    db = EmployeeDatabase()
-    if emp_id not in db.employees:
-        state['mode'] = 'done'
-        state['message'] = 'Lỗi: Mã NV không hợp lệ'
-        time.sleep(1.5)
-        state['active'] = False
-        return
-    
-    name = db.employees[emp_id]['name']
-    dept = db.employees[emp_id].get('department', '')
-    
-    service = VideoRegistrationService(det, rec, db)
-    success, message = service.register_from_video_frames(emp_id, name, dept, frames)
-    
-    if success:
-        state['mode'] = 'done'
-        state['message'] = f'✓ Hoàn thành! Đã đăng ký {len(frames)} ảnh.'
-    else:
-        state['mode'] = 'done'
-        state['message'] = f'Lỗi: {message}'
-    
-    time.sleep(1.5)
-    state['active'] = False
-
-
-@app.route('/api/start-recording', methods=['POST'])
+@app.route('/api/process-progress')
 @admin_required
-def start_recording():
-    """Bắt đầu capture frame - chỉ set state, video_feed sẽ tự capture."""
-    data = request.json
-    emp_id = data.get('emp_id')
-    
-    db = EmployeeDatabase()
-    if emp_id not in db.employees:
-        return jsonify({'status': 'error', 'message': 'Mã NV không hợp lệ'})
-    
-    # Reset state
-    video_registration_state['active'] = True
-    video_registration_state['emp_id'] = emp_id
-    video_registration_state['count'] = 0
-    video_registration_state['total'] = TOTAL_FRAMES_TO_CAPTURE
-    video_registration_state['captured_frames'] = []
-    video_registration_state['last_capture_time'] = 0
-    video_registration_state['mode'] = 'capturing'
-    video_registration_state['message'] = 'Đang chờ phát hiện khuôn mặt...'
-    
-    return jsonify({'status': 'success'})
-
-
-@app.route('/api/recording-progress')
-@admin_required
-def recording_progress():
-    """API trả về trạng thái capture hiện tại."""
-    # Đảm bảo các giá trị trả về là kiểu dữ liệu chuẩn của Python (để JSON serializable)
-    return jsonify({
-        'recording': bool(video_registration_state['active']),
-        'count': int(video_registration_state['count']),
-        'total': int(video_registration_state['total']),
-        'mode': str(video_registration_state['mode']),
-        'message': str(video_registration_state['message']),
-        'face_detected': bool(video_registration_state['face_detected']),
-        'is_blurry': bool(video_registration_state['is_blurry'])
-    })
+def process_progress():
+    """API trả về tiến độ xử lý video upload."""
+    return jsonify(processing_status)
 
 @app.route('/export-excel')
 @login_required

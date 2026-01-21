@@ -40,21 +40,8 @@ CONFIRM_FRAMES = 10
 FRAME_SKIP = 1
 PROCESS_WIDTH = 640
 
-# Số ảnh cần chụp khi đăng ký nhân viên
+# Số ảnh tối đa lưu trữ cho mỗi nhân viên
 NUM_REGISTRATION_PHOTOS = 20
-
-# =============================================================================
-# CẤU HÌNH ĐĂNG KÝ KHUÔN MẶT REAL-TIME
-# =============================================================================
-
-# Tổng số frame cần lấy khi đăng ký
-TOTAL_FRAMES_TO_CAPTURE = 20
-
-# Khoảng cách giữa các frame (giây) - để người dùng quay trái phải
-FRAME_CAPTURE_INTERVAL = 0.5
-
-# Ngưỡng Laplacian Variance để kiểm tra độ mờ (thấp hơn = mờ)
-BLUR_THRESHOLD = 100.0
 
 # =============================================================================
 # CẤU HÌNH CAMERA
