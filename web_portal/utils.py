@@ -41,7 +41,7 @@ def determine_status(check_in_str, check_out_str, manual_overrides=None, emp_id=
         
     try:
         t_in = datetime.strptime(check_in_str, "%H:%M:%S").time()
-        in_deadline = datetime.strptime("08:15:00", "%H:%M:%S").time()
+        in_deadline = datetime.strptime("08:00:00", "%H:%M:%S").time()
         
         status_list = []
         if t_in > in_deadline:
@@ -49,7 +49,7 @@ def determine_status(check_in_str, check_out_str, manual_overrides=None, emp_id=
             
         if check_out_str:
             t_out = datetime.strptime(check_out_str, "%H:%M:%S").time()
-            out_deadline = datetime.strptime("17:00:00", "%H:%M:%S").time()
+            out_deadline = datetime.strptime("17:30:00", "%H:%M:%S").time()
             if t_out < out_deadline:
                 status_list.append("Về sớm")
         
