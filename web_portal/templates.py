@@ -1295,7 +1295,7 @@ EMPLOYEE_DETAIL_TEMPLATE = '''
     <div class="container">
         <div class="header">
             <h1>👤 {{ emp_name }}</h1>
-            <p>Lịch sử điểm danh 7 ngày gần nhất</p>
+            <p>Lịch sử điểm danh 31 ngày gần nhất</p>
             <a href="/" class="back-link">← Quay lại Dashboard</a>
             <a href="javascript:location.reload()" class="btn-refresh">🔄 Làm mới</a>
         </div>

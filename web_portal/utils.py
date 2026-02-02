@@ -179,7 +179,7 @@ class AttendanceReader:
         
         return {"summary": summary, "daily_stats": daily_stats}
 
-    def get_employee_history(self, emp_id, days=7):
+    def get_employee_history(self, emp_id, days=31):
         """Lấy lịch sử của 1 nhân viên trong X ngày gần nhất"""
         available_dates = self.get_available_dates(days)
         history = []
@@ -187,10 +187,9 @@ class AttendanceReader:
         for d in available_dates:
             records = self.get_records_by_date(d)
             if emp_id in records:
-                # Chỉ lấy những ngày có đi làm (check_in) hoặc có manual override
-                if records[emp_id]["check_in"] or records[emp_id]["status"] != "Nghỉ":
-                    day_data = records[emp_id]
-                    day_data["date"] = d
-                    history.append(day_data)
+                # Bao gồm tất cả các ngày, kể cả khi nhân viên nghỉ
+                day_data = records[emp_id]
+                day_data["date"] = d
+                history.append(day_data)
         
         return history
